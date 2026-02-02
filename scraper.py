@@ -1,51 +1,39 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import date
+from datetime import datetime, timedelta
 
-def get_article_content(url):
-    """Fetches article text but returns only the first 2000 chars to save memory."""
+def get_bbc_news_by_category(category):
+    """
+    Step 1 & 2: Go to BBC and get headers from Technology/Business.
+    """
+    url = f"https://www.bbc.com/news/{category}"
     headers = {'User-Agent': 'Mozilla/5.0'}
+    news_list = []
+    
     try:
         response = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
-        paragraphs = soup.find_all('p')
-        # We only grab enough text for a good summary, not the whole database
-        content_text = " ".join([p.get_text().strip() for p in paragraphs if len(p.get_text()) > 40])
-        return content_text[:3000] # Limit to 3000 chars for the LLM
-    except:
-        return ""
-
-def get_filtered_news():
-    categories = ['technology', 'business']
-    ai_keywords = ['ai', 'artificial intelligence', 'machine learning', 'chatgpt', 'openai', 'robot', 'llm', 'gpu']
-    
-    final_ai_news = []
-    headers = {'User-Agent': 'Mozilla/5.0'}
-
-    for cat in categories:
-        url = f"https://www.bbc.com/news/{cat}"
-        print(f"Scanning {cat.upper()}...")
         
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        links = soup.find_all('a', href=True)
+        # BBC headlines are usually in h2 or h3 tags
+        articles = soup.find_all(['h2', 'h3'])
         
-        for link in links:
-            title = link.get_text().strip()
-            path = link['href']
+        for article in articles:
+            title = article.get_text().strip()
+            # Find the link associated with this header
+            parent_a = article.find_parent('a') or article.find('a')
             
-            if "/news/" in path and len(title) > 30:
-                full_url = f"https://www.bbc.com{path}" if path.startswith('/') else path
-                content = get_article_content(full_url)
+            if parent_a and parent_a.has_attr('href'):
+                link = parent_a['href']
+                full_url = f"https://www.bbc.com{link}" if link.startswith('/') else link
                 
-                # Filter check
-                if any(word in title.lower() for word in ai_keywords) or any(word in content.lower() for word in ai_keywords):
-                    news_data = {
+                # Basic validation: ensure it's a real news story
+                if "/news/" in full_url and len(title) > 25:
+                    news_list.append({
                         "header": title,
                         "link": full_url,
-                        "date": date.today().strftime("%Y-%m-%d"),
-                        "raw_text": content # Temporary storage for the agent to summarize
-                    }
-                    if not any(d['header'] == title for d in final_ai_news):
-                        final_ai_news.append(news_data)
-    return final_ai_news
+                        "date": datetime.now().strftime("%Y-%m-%d")
+                    })
+        return news_list
+    except Exception as e:
+        print(f"Error fetching {category}: {e}")
+        return []
