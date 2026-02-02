@@ -1,51 +1,59 @@
 import requests
 from bs4 import BeautifulSoup
 
+def get_article_content(url):
+    """Visits the actual article page to check for AI keywords in the body text."""
+    try:
+        response = requests.get(url, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # BBC article text is usually inside <p> tags
+        paragraphs = soup.find_all('p')
+        # We only read the first 5 paragraphs to stay fast
+        content_text = " ".join([p.get_text() for p in paragraphs[:5]])
+        return content_text.lower()
+    except:
+        return ""
+
 def get_filtered_news():
-    # 1. Define the categories and AI keywords
     categories = ['technology', 'business']
-    ai_keywords = ['ai', 'artificial intelligence', 'machine learning', 'chatgpt', 'openai', 'robot', 'automation']
+    ai_keywords = ['ai', 'artificial intelligence', 'machine learning', 'chatgpt', 'openai', 'robot', 'llm', 'gpu']
     
-    all_news = []
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+    final_ai_news = []
+    headers = {'User-Agent': 'Mozilla/5.0'}
 
-    print("Fetching news from BBC...")
-
-    for category in categories:
-        url = f"https://www.bbc.com/news/{category}"
-        try:
-            response = requests.get(url, headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
+    for cat in categories:
+        url = f"https://www.bbc.com/news/{cat}"
+        print(f"Searching {cat} for AI stories...")
+        
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find all links that look like news articles
+        links = soup.find_all('a', href=True)
+        
+        for link in links:
+            title = link.get_text().strip()
+            path = link['href']
             
-            # Find headlines (usually h2 or h3)
-            headlines = soup.find_all(['h2', 'h3'])
-            
-            for h in headlines:
-                text = h.get_text().strip()
+            # Ensure it's a real news link and not a menu item
+            if "/news/" in path and len(title) > 30:
+                full_url = f"https://www.bbc.com{path}" if path.startswith('/') else path
                 
-                # Filter 1: Only keep long headlines (removes menu buttons)
-                if len(text) > 25:
-                    # Filter 2: Check if any AI keyword is in the headline
-                    is_ai_related = any(word in text.lower() for word in ai_keywords)
-                    
-                    if is_ai_related:
-                        if text not in all_news: # Remove duplicates
-                            all_news.append(f"[{category.upper()}] {text}")
-                            
-        except Exception as e:
-            print(f"Error fetching {category}: {e}")
+                # Check Headline FIRST
+                if any(word in title.lower() for word in ai_keywords):
+                    final_ai_news.append(f"TITLE MATCH: {title}")
+                    continue # Skip content check if headline already matched
+                
+                # Check CONTENT SECOND (If headline didn't match)
+                content = get_article_content(full_url)
+                if any(word in content for word in ai_keywords):
+                    final_ai_news.append(f"CONTENT MATCH: {title}")
 
-    return all_news
+    # Remove duplicates
+    return list(dict.fromkeys(final_ai_news))
 
-# This part is just for testing!
 if __name__ == "__main__":
-    ai_stories = get_filtered_news()
-    print("\n--- FOUND AI RELATED NEWS ---")
-    if not ai_stories:
-        print("No AI news found today. Try again later!")
-    else:
-        for i, news in enumerate(ai_stories, 1):
-            print(f"{i}. {news}")
+    results = get_filtered_news()
+    for item in results:
+        print(f"Found: {item}")
