@@ -1,55 +1,40 @@
 import csv
-from langchain_ollama import ChatOllama
-from scraper import get_bbc_news_by_category
-from datetime import date
+from scraper import get_filtered_ai_news
+from langchain_ollama import ChatOllama # Ensure you have this installed
 
-# 1. Setup Local LLM
+# Setup Llama 3
 llm = ChatOllama(model="llama3", temperature=0.1)
 
-def run_project():
-    # Step 2: Fetch raw headers
-    print("Fetching news from BBC...")
-    raw_tech = get_bbc_news_by_category("technology")
-    raw_biz = get_bbc_news_by_category("business")
-    all_raw_news = raw_tech + raw_biz
-
-    # Step 3: AI Keyword Filter (Headers only)
-    ai_keywords = ['ai', 'artificial intelligence', 'machine learning', 'openai', 'chatgpt', 'robot', 'gpu', 'nvidia']
+def start_step_4():
+    print("=== Step 4: Summarizing & Storing AI News ===")
     
-    # Filter the list
-    filtered_news = []
-    for item in all_raw_news:
-        header = item['header'].lower()
-        if any(keyword in header for keyword in ai_keywords):
-            filtered_news.append(item)
-
-    if not filtered_news:
-        print("No AI news found in today's headers.")
+    # Steps 1-3 happen inside this call
+    ai_news_list = get_filtered_ai_news()
+    
+    if not ai_news_list:
+        print("\nNo genuine AI news found.")
         return
 
-    # Step 4: Summarize and Store
-    print(f"Filtering complete. Found {len(filtered_news)} AI stories. Summarizing...")
-    filename = f"AI_News_{date.today()}.csv"
-
+    # CSV setup
+    filename = "Verified_AI_News_Report.csv"
+    
     with open(filename, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(["Header", "Date", "Link", "Summary"])
+        writer.writerow(["Header", "Publish Date", "Link", "Summary"])
 
-        for item in filtered_news:
-            h = item['header']
-            print(f"Processing: {h[:50]}...")
+        for item in ai_news_list:
+            print(f"Summarizing: {item['header'][:50]}...")
             
-            # Generate summary with Llama 3
-            prompt = f"Summarize this news headline in one short technical sentence: {h}"
+            # Use Llama 3 to create a small summary
+            prompt = f"Summarize this AI news technically in 2 sentences: {item['content']}"
             try:
                 summary = llm.invoke(prompt).content.strip()
             except:
-                summary = "Summary generation failed."
+                summary = "Summary failed."
 
-            # Save Row
-            writer.writerow([h, item['date'], item['link'], summary])
+            writer.writerow([item['header'], item['date'], item['link'], summary])
 
-    print(f"\n✅ SUCCESS! Your report is ready: {filename}")
+    print(f"\n✅ SUCCESS! File created: {filename}")
 
 if __name__ == "__main__":
-    run_project()
+    start_step_4()

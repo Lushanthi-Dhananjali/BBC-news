@@ -1,39 +1,67 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import re
 
-def get_bbc_news_by_category(category):
-    """
-    Step 1 & 2: Go to BBC and get headers from Technology/Business.
-    """
-    url = f"https://www.bbc.com/news/{category}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    news_list = []
+def get_filtered_ai_news():
+    categories = ['technology', 'health']
+    # Match 'AI' as a whole word or the full phrases
+    ai_pattern = re.compile(r'\b(ai|artificial intelligence|machine learning|chatgpt|openai|llm)\b', re.IGNORECASE)
     
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
+    # Negative filter: If these words are found, discard the article
+    blacklist = ['parking', 'parking fine', 'solar panel', 'weight loss', 'strike action', 'pension']
+    
+    verified_ai_news = []
+    one_week_ago = datetime.now() - timedelta(days=7)
+    headers = {'User-Agent': 'Mozilla/5.0'}
+
+    for cat in categories:
+        url = f"https://www.bbc.com/news/{cat}"
+        print(f"Scanning BBC {cat.upper()} for REAL AI stories...")
         
-        # BBC headlines are usually in h2 or h3 tags
-        articles = soup.find_all(['h2', 'h3'])
-        
-        for article in articles:
-            title = article.get_text().strip()
-            # Find the link associated with this header
-            parent_a = article.find_parent('a') or article.find('a')
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            links = soup.find_all('a', href=True)
             
-            if parent_a and parent_a.has_attr('href'):
-                link = parent_a['href']
-                full_url = f"https://www.bbc.com{link}" if link.startswith('/') else link
+            for link in links:
+                path = link['href']
+                full_url = f"https://www.bbc.com{path}" if path.startswith('/') else path
                 
-                # Basic validation: ensure it's a real news story
-                if "/news/" in full_url and len(title) > 25:
-                    news_list.append({
-                        "header": title,
-                        "link": full_url,
-                        "date": datetime.now().strftime("%Y-%m-%d")
-                    })
-        return news_list
-    except Exception as e:
-        print(f"Error fetching {category}: {e}")
-        return []
+                if "/news/articles/" in path or "/news/videos/" in path:
+                    try:
+                        article_res = requests.get(full_url, headers=headers, timeout=5)
+                        article_soup = BeautifulSoup(article_res.text, 'html.parser')
+                        
+                        # Step 1: Date Check
+                        time_tag = article_soup.find('time')
+                        if time_tag and time_tag.has_attr('datetime'):
+                            date_str = time_tag['datetime'][:10] 
+                            pub_date = datetime.strptime(date_str, '%Y-%m-%d')
+                            
+                            if pub_date >= one_week_ago:
+                                # Step 2: Content Check
+                                paragraphs = article_soup.find_all('p')
+                                content_text = " ".join([p.get_text() for p in paragraphs]).lower()
+                                
+                                # Strict Regex Match
+                                if ai_pattern.search(content_text):
+                                    # Strict Blacklist Check
+                                    if not any(bad_word in content_text for bad_word in blacklist):
+                                        header_tag = article_soup.find('h1')
+                                        if header_tag:
+                                            title = header_tag.get_text().strip()
+                                            if not any(item['header'] == title for item in verified_ai_news):
+                                                verified_ai_news.append({
+                                                    "header": title,
+                                                    "link": full_url,
+                                                    "date": date_str,
+                                                    "content": content_text[:2000] # For LLM
+                                                })
+                                                print(f"  [Verified AI]: {title[:50]}...")
+                    except:
+                        continue
+        except Exception as e:
+            print(f"Error: {e}")
+
+    return verified_ai_news
